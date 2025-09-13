@@ -1,8 +1,9 @@
 import os
 import json
 import logging
+import asyncio
 from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
+from aiogram.filters import Command
 
 # ===================== Настройки =====================
 API_TOKEN = os.getenv("API_TOKEN")  # токен бота из переменной окружения
@@ -13,7 +14,7 @@ WORDS_FILE = "words.json"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()
 
 
 # ===================== Работа со словами =====================
@@ -30,12 +31,12 @@ def save_words(words):
 
 
 # ===================== Хэндлеры =====================
-@dp.message_handler(commands=["start"])
+@dp.message(Command("start"))
 async def start(message: types.Message):
     await message.answer("Привет! Введите секретное слово, чтобы получить доступ.")
 
 
-@dp.message_handler(commands=["addword"])
+@dp.message(Command("addword"))
 async def add_word(message: types.Message):
     if message.from_user.id not in ADMINS:
         return await message.answer("⛔ У вас нет прав.")
@@ -51,7 +52,7 @@ async def add_word(message: types.Message):
     await message.answer(f"✅ Слово '{word}' добавлено.")
 
 
-@dp.message_handler(commands=["delword"])
+@dp.message(Command("delword"))
 async def del_word(message: types.Message):
     if message.from_user.id not in ADMINS:
         return await message.answer("⛔ У вас нет прав.")
@@ -67,7 +68,7 @@ async def del_word(message: types.Message):
     await message.answer(f"🗑 Слово '{word}' удалено.")
 
 
-@dp.message_handler(commands=["listwords"])
+@dp.message(Command("listwords"))
 async def list_words(message: types.Message):
     if message.from_user.id not in ADMINS:
         return await message.answer("⛔ У вас нет прав.")
@@ -77,7 +78,12 @@ async def list_words(message: types.Message):
     await message.answer("📌 Секретные слова:\n" + "\n".join(words))
 
 
-@dp.message_handler()
+@dp.message(Command("getid"))
+async def get_id(message: types.Message):
+    await message.answer(f"ℹ️ Chat ID этого чата: `{message.chat.id}`", parse_mode="Markdown")
+
+
+@dp.message()
 async def check_word(message: types.Message):
     word = message.text.strip().lower()
     words = load_words()
@@ -96,5 +102,8 @@ async def check_word(message: types.Message):
 
 
 # ===================== Запуск =====================
+async def main():
+    await dp.start_polling(bot)
+
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main())
