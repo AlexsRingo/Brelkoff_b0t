@@ -11,7 +11,7 @@ from aiohttp import web
 # ===================== Настройки =====================
 API_TOKEN = os.getenv("API_TOKEN")  # токен бота
 INSTRUCTION_CHANNEL_ID = int(os.getenv("INSTRUCTION_CHANNEL_ID", "-1001234567890"))  # канал с инструкциями (numeric ID)
-NEWS_CHANNEL_USERNAME = os.getenv("NEWS_CHANNEL_USERNAME", "@brelkof")  # публичный username канала (для кнопки/проверки)
+NEWS_CHANNEL_USERNAME = os.getenv("NEWS_CHANNEL_USERNAME", "@brelkof")  # username (@name) или ID (-100...)
 ADMINS = list(map(int, os.getenv("ADMINS", "").split(","))) if os.getenv("ADMINS") else []
 
 WORDS_FILE = "words.json"
@@ -79,11 +79,10 @@ async def check_word(message: types.Message):
     words = load_words()
 
     if word in words:
-        # Клавиатура: Подписаться + Проверить подписку
         kb = InlineKeyboardBuilder()
         kb.button(text="🔗 Подписаться на канал", url=f"https://t.me/{NEWS_CHANNEL_USERNAME.strip('@')}")
         kb.button(text="✅ Проверить подписку", callback_data="checksub")
-        kb.adjust(1)  # по одной кнопке в строке
+        kb.adjust(1)
 
         await message.answer(
             "✅ Код принят!\n"
@@ -98,12 +97,14 @@ async def check_word(message: types.Message):
 @dp.callback_query(F.data == "checksub")
 async def checksub_callback(callback: types.CallbackQuery):
     try:
-        # NEWS_CHANNEL_USERNAME может быть '@name' или 'name'
-        chat_for_check = NEWS_CHANNEL_USERNAME if NEWS_CHANNEL_USERNAME.startswith("@") else f"@{NEWS_CHANNEL_USERNAME}"
+        if NEWS_CHANNEL_USERNAME.startswith("-100"):
+            chat_for_check = int(NEWS_CHANNEL_USERNAME)
+        else:
+            chat_for_check = NEWS_CHANNEL_USERNAME if NEWS_CHANNEL_USERNAME.startswith("@") else f"@{NEWS_CHANNEL_USERNAME}"
+
         member = await bot.get_chat_member(chat_id=chat_for_check, user_id=callback.from_user.id)
         status = getattr(member, "status", None)
         if status in ("member", "administrator", "creator"):
-            # Подписка есть → выдаем инструкции
             kb_bingo = InlineKeyboardBuilder()
             kb_bingo.button(text="🎯 БИНГО", callback_data="bingo")
             kb_bingo.adjust(1)
@@ -124,8 +125,8 @@ async def checksub_callback(callback: types.CallbackQuery):
             )
         else:
             await callback.message.answer("❌ Ты еще не подписался на канал BRELKOF!")
-    except Exception:
-        await callback.message.answer("⚠️ Ошибка при проверке подписки. Убедись, что канал доступен и бот там админ.")
+    except Exception as e:
+        await callback.message.answer(f"⚠️ Ошибка при проверке подписки: {e}")
     finally:
         try:
             await callback.answer()
@@ -156,7 +157,7 @@ async def start_web_app():
 
 # ===================== Запуск =====================
 async def main():
-    asyncio.create_task(start_web_app())  # запускаем web-сервер
+    asyncio.create_task(start_web_app())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
