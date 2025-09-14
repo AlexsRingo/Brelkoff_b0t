@@ -11,7 +11,9 @@ from aiohttp import web
 # ===================== Настройки =====================
 API_TOKEN = os.getenv("API_TOKEN")  # токен бота
 INSTRUCTION_CHANNEL_ID = int(os.getenv("INSTRUCTION_CHANNEL_ID", "-1001234567890"))  # канал с инструкциями (numeric ID)
-NEWS_CHANNEL_USERNAME = os.getenv("NEWS_CHANNEL_USERNAME", "@brelkof")  # username (@name) или ID (-100...)
+NEWS_CHANNEL_ID = os.getenv("NEWS_CHANNEL_USERNAME", "-1001234567890")  # ID новостного канала (numeric)
+NEWS_CHANNEL_LINK = os.getenv("NEWS_CHANNEL_LINK", "https://t.me/+EVFwvTKKwlJhOTNi")  # ссылка для кнопки
+WELCOME_PIC = os.getenv("WELCOME_PIC", "https://placekitten.com/400/300")  # картинка при старте
 ADMINS = list(map(int, os.getenv("ADMINS", "").split(","))) if os.getenv("ADMINS") else []
 
 WORDS_FILE = "words.json"
@@ -32,7 +34,7 @@ def save_words(words):
     with open(WORDS_FILE, "w", encoding="utf-8") as f:
         json.dump(words, f, ensure_ascii=False, indent=4)
 
-# ===================== Хэндлеры =====================
+# ===================== Команды =====================
 @dp.message(Command("start"))
 async def start(message: types.Message):
     text = (
@@ -43,7 +45,10 @@ async def start(message: types.Message):
         "Чтобы открыть доступ к инструкциям введи кодовое слово с листовки:\n"
         "Через команду /slovo"
     )
-    await message.answer(text)
+    try:
+        await message.answer_photo(photo=WELCOME_PIC, caption=text)
+    except Exception:
+        await message.answer(text)
 
 @dp.message(Command("slovo"))
 async def ask_word(message: types.Message):
@@ -73,6 +78,25 @@ async def list_words(message: types.Message):
         return await message.answer("📭 Список пуст.")
     await message.answer("📌 Секретные слова:\n" + "\n".join(words))
 
+@dp.message(Command("getid"))
+async def get_id(message: types.Message):
+    await message.answer(f"ID этого чата: {message.chat.id}")
+
+@dp.message(Command("sendpic"))
+async def send_pic(message: types.Message):
+    if message.from_user.id not in ADMINS:
+        return await message.answer("⛔ У вас нет прав.")
+    parts = message.text.split(maxsplit=2)
+    if len(parts) < 3:
+        return await message.answer("Использование: /sendpic <url_картинки> <текст>")
+    url = parts[1]
+    caption = parts[2]
+    try:
+        await message.answer_photo(photo=url, caption=caption)
+    except Exception as e:
+        await message.answer(f"⚠️ Ошибка при отправке картинки: {e}")
+
+# ===================== Проверка слова =====================
 @dp.message()
 async def check_word(message: types.Message):
     word = message.text.strip().lower()
@@ -80,7 +104,7 @@ async def check_word(message: types.Message):
 
     if word in words:
         kb = InlineKeyboardBuilder()
-        kb.button(text="🔗 Подписаться на канал", url=f"https://t.me/{NEWS_CHANNEL_USERNAME.strip('@')}")
+        kb.button(text="🔗 Подписаться на канал", url=NEWS_CHANNEL_LINK)
         kb.button(text="✅ Проверить подписку", callback_data="checksub")
         kb.adjust(1)
 
@@ -97,10 +121,7 @@ async def check_word(message: types.Message):
 @dp.callback_query(F.data == "checksub")
 async def checksub_callback(callback: types.CallbackQuery):
     try:
-        if NEWS_CHANNEL_USERNAME.startswith("-100"):
-            chat_for_check = int(NEWS_CHANNEL_USERNAME)
-        else:
-            chat_for_check = NEWS_CHANNEL_USERNAME if NEWS_CHANNEL_USERNAME.startswith("@") else f"@{NEWS_CHANNEL_USERNAME}"
+        chat_for_check = int(NEWS_CHANNEL_ID) if NEWS_CHANNEL_ID.startswith("-100") else NEWS_CHANNEL_ID
 
         member = await bot.get_chat_member(chat_id=chat_for_check, user_id=callback.from_user.id)
         status = getattr(member, "status", None)
@@ -109,19 +130,18 @@ async def checksub_callback(callback: types.CallbackQuery):
             kb_bingo.button(text="🎯 БИНГО", callback_data="bingo")
             kb_bingo.adjust(1)
 
-            invite = await bot.create_chat_invite_link(
-                chat_id=INSTRUCTION_CHANNEL_ID,
-                member_limit=1
-            )
             await callback.message.answer(
                 "Спасибо тебе!\n"
                 "А еще у нас есть БИНГО 🎉\n"
                 "Выполняя задания, ты получишь скидку на следующий заказ.",
                 reply_markup=kb_bingo.as_markup()
             )
-            await callback.message.answer(
-                "Я очень рада, что ты с нами!\nЖелаю тебе приятно провести это время)\n\n"
-                f"Вот твоя ссылка на инструкции: {invite.invite_link}"
+            await callback.message.answer_photo(
+                photo="https://placekitten.com/500/300",
+                caption=(
+                    "Я очень рада, что ты с нами!\nЖелаю тебе приятно провести это время)\n\n"
+                    f"Вот твоя ссылка на инструкции: https://t.me/+EVFwvTKKwlJhOTNi"
+                )
             )
         else:
             await callback.message.answer("❌ Ты еще не подписался на канал BRELKOF!")
