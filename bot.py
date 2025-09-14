@@ -4,18 +4,19 @@ import logging
 import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ===================== Настройки =====================
-API_TOKEN = os.getenv("API_TOKEN")  # токен бота из переменной окружения
-CHANNEL_ID = int(os.getenv("CHANNEL_ID", "-1001234567890"))  # ID канала
-ADMINS = list(map(int, os.getenv("ADMINS", "").split(",")))  # список ID админов через запятую
+API_TOKEN = os.getenv("API_TOKEN")  # токен бота
+INSTRUCTION_CHANNEL_ID = int(os.getenv("INSTRUCTION_CHANNEL_ID", "-1001234567890"))  # канал с инструкциями
+NEWS_CHANNEL_USERNAME = os.getenv("NEWS_CHANNEL_USERNAME", "@brelkof")  # публичный username канала (для кнопки)
+ADMINS = list(map(int, os.getenv("ADMINS", "").split(",")))
 
 WORDS_FILE = "words.json"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
-
 
 # ===================== Работа со словами =====================
 def load_words():
@@ -29,12 +30,22 @@ def save_words(words):
     with open(WORDS_FILE, "w", encoding="utf-8") as f:
         json.dump(words, f, ensure_ascii=False, indent=4)
 
-
 # ===================== Хэндлеры =====================
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    await message.answer("Привет! Введите секретное слово, чтобы получить доступ.")
+    text = (
+        "Привет!  \n"
+        "На связи Даша - основатель бренда BRELKOF.\n"
+        "Спасибо, что ты с нами)\n"
+        "Мы делаем все, чтобы у тебя получился свой собственный плюшевый зайчик)\n\n"
+        "Чтобы открыть доступ к инструкциям введи кодовое слово с листовки:\n"
+        "Через команду /slovo"
+    )
+    await message.answer(text)
 
+@dp.message(Command("slovo"))
+async def ask_word(message: types.Message):
+    await message.answer("✏️ Введи кодовое слово:")
 
 @dp.message(Command("addword"))
 async def add_word(message: types.Message):
@@ -51,23 +62,6 @@ async def add_word(message: types.Message):
     save_words(words)
     await message.answer(f"✅ Слово '{word}' добавлено.")
 
-
-@dp.message(Command("delword"))
-async def del_word(message: types.Message):
-    if message.from_user.id not in ADMINS:
-        return await message.answer("⛔ У вас нет прав.")
-    parts = message.text.split()
-    if len(parts) != 2:
-        return await message.answer("Использование: /delword <слово>")
-    word = parts[1].strip().lower()
-    words = load_words()
-    if word not in words:
-        return await message.answer("⚠️ Такого слова нет.")
-    words.remove(word)
-    save_words(words)
-    await message.answer(f"🗑 Слово '{word}' удалено.")
-
-
 @dp.message(Command("listwords"))
 async def list_words(message: types.Message):
     if message.from_user.id not in ADMINS:
@@ -77,29 +71,59 @@ async def list_words(message: types.Message):
         return await message.answer("📭 Список пуст.")
     await message.answer("📌 Секретные слова:\n" + "\n".join(words))
 
-
-@dp.message(Command("getid"))
-async def get_id(message: types.Message):
-    await message.answer(f"ℹ️ Chat ID этого чата: `{message.chat.id}`", parse_mode="Markdown")
-
-
 @dp.message()
 async def check_word(message: types.Message):
     word = message.text.strip().lower()
     words = load_words()
 
     if word in words:
-        # создаем одноразовую ссылку
-        invite = await bot.create_chat_invite_link(
-            chat_id=CHANNEL_ID,
-            member_limit=1
+        # Предлагаем подписку
+        keyboard = InlineKeyboardMarkup().add(
+            InlineKeyboardButton("Подписаться на канал BRELKOF", url=f"https://t.me/{NEWS_CHANNEL_USERNAME.strip('@')}")
         )
         await message.answer(
-            f"✅ Секретное слово верное!\nВот ваша одноразовая ссылка: {invite.invite_link}"
+            "✅ Код принят!\n"
+            "Перед тем, как перейти к урокам, подпишись на наш официальный канал BRELKOF.\n"
+            "Именно там будут все новости, розыгрыши, конкурсы и анонсы наборов!",
+            reply_markup=keyboard
         )
     else:
-        await message.answer("❌ Неверное слово. Попробуйте ещё раз.")
+        await message.answer("❌ Неверное слово. Попробуй ещё раз.")
 
+# Команда проверки подписки
+@dp.message(Command("checksub"))
+async def check_subscription(message: types.Message):
+    try:
+        member = await bot.get_chat_member(chat_id=NEWS_CHANNEL_USERNAME, user_id=message.from_user.id)
+        if member.status in ["member", "administrator", "creator"]:
+            # Подписка есть → выдаем инструкции
+            bingo_btn = InlineKeyboardMarkup().add(
+                InlineKeyboardButton("🎯 БИНГО", callback_data="bingo")
+            )
+            invite = await bot.create_chat_invite_link(
+                chat_id=INSTRUCTION_CHANNEL_ID,
+                member_limit=1
+            )
+            await message.answer(
+                "Спасибо тебе!\n"
+                "А еще у нас есть БИНГО 🎉\n"
+                "Выполняя задания, ты получишь скидку на следующий заказ.",
+                reply_markup=bingo_btn
+            )
+            await message.answer(
+                "Я очень рада, что ты с нами!\nЖелаю тебе приятно провести это время)\n\n"
+                f"Вот твоя ссылка на инструкции: {invite.invite_link}"
+            )
+        else:
+            await message.answer("❌ Ты еще не подписался на канал BRELKOF!")
+    except Exception as e:
+        await message.answer("⚠️ Ошибка при проверке подписки. Убедись, что канал доступен и бот там админ.")
+
+# Заглушка для бинго
+@dp.callback_query()
+async def bingo_callback(callback: types.CallbackQuery):
+    if callback.data == "bingo":
+        await callback.message.answer("🎯 Раздел БИНГО пока в разработке 😉")
 
 # ===================== Запуск =====================
 async def main():
