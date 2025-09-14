@@ -5,6 +5,7 @@ import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiohttp import web
 
 # ===================== Настройки =====================
 API_TOKEN = os.getenv("API_TOKEN")  # токен бота
@@ -125,8 +126,22 @@ async def bingo_callback(callback: types.CallbackQuery):
     if callback.data == "bingo":
         await callback.message.answer("🎯 Раздел БИНГО пока в разработке 😉")
 
+# ===================== AIOHTTP сервер для Render =====================
+async def handle(request):
+    return web.Response(text="Bot is running")
+
+async def start_web_app():
+    app = web.Application()
+    app.router.add_get("/", handle)
+    port = int(os.getenv("PORT", 5000))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
 # ===================== Запуск =====================
 async def main():
+    asyncio.create_task(start_web_app())  # запускаем web-сервер
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
