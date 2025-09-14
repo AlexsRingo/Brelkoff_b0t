@@ -78,10 +78,11 @@ async def check_word(message: types.Message):
     words = load_words()
 
     if word in words:
-        # Предлагаем подписку
-        keyboard = InlineKeyboardMarkup().add(
-            InlineKeyboardButton("Подписаться на канал BRELKOF", url=f"https://t.me/{NEWS_CHANNEL_USERNAME.strip('@')}")
-        )
+        # Две кнопки: подписка и проверка подписки
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("🔗 Подписаться на канал", url=f"https://t.me/{NEWS_CHANNEL_USERNAME.strip('@')}"))
+        keyboard.add(InlineKeyboardButton("✅ Проверить подписку", callback_data="checksub"))
+
         await message.answer(
             "✅ Код принят!\n"
             "Перед тем, как перейти к урокам, подпишись на наш официальный канал BRELKOF.\n"
@@ -91,39 +92,37 @@ async def check_word(message: types.Message):
     else:
         await message.answer("❌ Неверное слово. Попробуй ещё раз.")
 
-# Команда проверки подписки
-@dp.message(Command("checksub"))
-async def check_subscription(message: types.Message):
-    try:
-        member = await bot.get_chat_member(chat_id=NEWS_CHANNEL_USERNAME, user_id=message.from_user.id)
-        if member.status in ["member", "administrator", "creator"]:
-            # Подписка есть → выдаем инструкции
-            bingo_btn = InlineKeyboardMarkup().add(
-                InlineKeyboardButton("🎯 БИНГО", callback_data="bingo")
-            )
-            invite = await bot.create_chat_invite_link(
-                chat_id=INSTRUCTION_CHANNEL_ID,
-                member_limit=1
-            )
-            await message.answer(
-                "Спасибо тебе!\n"
-                "А еще у нас есть БИНГО 🎉\n"
-                "Выполняя задания, ты получишь скидку на следующий заказ.",
-                reply_markup=bingo_btn
-            )
-            await message.answer(
-                "Я очень рада, что ты с нами!\nЖелаю тебе приятно провести это время)\n\n"
-                f"Вот твоя ссылка на инструкции: {invite.invite_link}"
-            )
-        else:
-            await message.answer("❌ Ты еще не подписался на канал BRELKOF!")
-    except Exception as e:
-        await message.answer("⚠️ Ошибка при проверке подписки. Убедись, что канал доступен и бот там админ.")
-
-# Заглушка для бинго
+# ===================== Callback проверка подписки =====================
 @dp.callback_query()
-async def bingo_callback(callback: types.CallbackQuery):
-    if callback.data == "bingo":
+async def callback_handler(callback: types.CallbackQuery):
+    if callback.data == "checksub":
+        try:
+            member = await bot.get_chat_member(chat_id=NEWS_CHANNEL_USERNAME, user_id=callback.from_user.id)
+            if member.status in ["member", "administrator", "creator"]:
+                # Подписка есть → выдаем инструкции
+                bingo_btn = InlineKeyboardMarkup().add(
+                    InlineKeyboardButton("🎯 БИНГО", callback_data="bingo")
+                )
+                invite = await bot.create_chat_invite_link(
+                    chat_id=INSTRUCTION_CHANNEL_ID,
+                    member_limit=1
+                )
+                await callback.message.answer(
+                    "Спасибо тебе!\n"
+                    "А еще у нас есть БИНГО 🎉\n"
+                    "Выполняя задания, ты получишь скидку на следующий заказ.",
+                    reply_markup=bingo_btn
+                )
+                await callback.message.answer(
+                    "Я очень рада, что ты с нами!\nЖелаю тебе приятно провести это время)\n\n"
+                    f"Вот твоя ссылка на инструкции: {invite.invite_link}"
+                )
+            else:
+                await callback.message.answer("❌ Ты еще не подписался на канал BRELKOF!")
+        except Exception:
+            await callback.message.answer("⚠️ Ошибка при проверке подписки. Убедись, что канал доступен и бот там админ.")
+
+    elif callback.data == "bingo":
         await callback.message.answer("🎯 Раздел БИНГО пока в разработке 😉")
 
 # ===================== AIOHTTP сервер для Render =====================
