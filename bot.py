@@ -1,170 +1,92 @@
+\
 import os
 import json
 import logging
 import asyncio
+from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
 
-# ===================== Настройки =====================
-API_TOKEN = os.getenv("API_TOKEN")  # токен бота
-INSTRUCTION_CHANNEL_ID = int(os.getenv("INSTRUCTION_CHANNEL_ID", "-1001234567890"))  # канал с инструкциями (numeric ID)
-NEWS_CHANNEL_ID = os.getenv("NEWS_CHANNEL_USERNAME", "-1001234567890")  # ID новостного канала (numeric)
-NEWS_CHANNEL_LINK = os.getenv("NEWS_CHANNEL_LINK", "https://t.me/+EVFwvTKKwlJhOTNi")  # ссылка для кнопки
-WELCOME_PIC = os.getenv("WELCOME_PIC", "https://placekitten.com/400/300")  # картинка при старте
+# ========= CONFIG =========
+API_TOKEN = os.getenv("API_TOKEN")
 ADMINS = list(map(int, os.getenv("ADMINS", "").split(","))) if os.getenv("ADMINS") else []
+SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "@Dashq0")
+WELCOME_PIC = os.getenv("WELCOME_PIC", "https://placekitten.com/600/350")
+BINGO_PIC = os.getenv("BINGO_PIC", "https://placekitten.com/600/400")
+NEWS_CHANNEL_ID = os.getenv("NEWS_CHANNEL_ID", "-1002900328490")
+NEWS_CHANNEL_LINK = os.getenv("NEWS_CHANNEL_LINK", "https://t.me/+EVFwvTKKwlJhOTNi")
 
-WORDS_FILE = "words.json"
+WORDS_MAP = {
+    "ушастик": {"type": "id", "value": -1002900328490},
+    "геннадий": {"type": "link", "value": "https://t.me/+E8VHovI3OAcyYjQy"},
+}
+
+USERS_FILE = "users.json"
+MSGS_FILE = "messages.json"
+BINGO_FILE = "bingo.json"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# ===================== Работа со словами =====================
-def load_words():
+REPLY_MAP = {}  # admin_message_id -> user_id
+
+# ========= HELPERS =========
+def load_json(path):
     try:
-        with open(WORDS_FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except FileNotFoundError:
+    except:
+        return {}
+
+def save_json(path, data):
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logging.error(f"Error saving {path}: {e}")
+
+def load_list(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
         return []
 
-def save_words(words):
-    with open(WORDS_FILE, "w", encoding="utf-8") as f:
-        json.dump(words, f, ensure_ascii=False, indent=4)
+def save_list(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ===================== Команды =====================
-@dp.message(Command("start"))
-async def start(message: types.Message):
-    text = (
-        "Привет!  \n"
-        "На связи Даша - основатель бренда BRELKOF.\n"
-        "Спасибо, что ты с нами)\n"
-        "Мы делаем все, чтобы у тебя получился свой собственный плюшевый зайчик)\n\n"
-        "Чтобы открыть доступ к инструкциям введи кодовое слово с листовки:\n"
-        "Через команду /slovo"
+def add_user(user_id):
+    users = load_list(USERS_FILE)
+    if user_id not in users:
+        users.append(user_id)
+        save_list(USERS_FILE, users)
+
+def log_message(entry):
+    msgs = load_list(MSGS_FILE)
+    msgs.append(entry)
+    save_list(MSGS_FILE, msgs)
+
+# ========= KEYBOARDS =========
+def reply_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="СТАРТ"), KeyboardButton(text="БИНГО")]],
+        resize_keyboard=True
     )
-    try:
-        await message.answer_photo(photo=WELCOME_PIC, caption=text)
-    except Exception:
-        await message.answer(text)
 
-@dp.message(Command("slovo"))
-async def ask_word(message: types.Message):
-    await message.answer("✏️ Введи кодовое слово:")
+def bingo_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ ГОТОВО", callback_data="bingo_done")
+    kb.adjust(1)
+    return kb.as_markup()
 
-@dp.message(Command("addword"))
-async def add_word(message: types.Message):
-    if message.from_user.id not in ADMINS:
-        return await message.answer("⛔ У вас нет прав.")
-    parts = message.text.split(maxsplit=1)
-    if len(parts) != 2 or not parts[1].strip():
-        return await message.answer("Использование: /addword <слово>")
-    word = parts[1].strip().lower()
-    words = load_words()
-    if word in words:
-        return await message.answer("⚠️ Слово уже существует.")
-    words.append(word)
-    save_words(words)
-    await message.answer(f"✅ Слово '{word}' добавлено.")
-
-@dp.message(Command("listwords"))
-async def list_words(message: types.Message):
-    if message.from_user.id not in ADMINS:
-        return await message.answer("⛔ У вас нет прав.")
-    words = load_words()
-    if not words:
-        return await message.answer("📭 Список пуст.")
-    await message.answer("📌 Секретные слова:\n" + "\n".join(words))
-
-@dp.message(Command("getid"))
-async def get_id(message: types.Message):
-    await message.answer(f"ID этого чата: {message.chat.id}")
-
-@dp.message(Command("sendpic"))
-async def send_pic(message: types.Message):
-    if message.from_user.id not in ADMINS:
-        return await message.answer("⛔ У вас нет прав.")
-    parts = message.text.split(maxsplit=2)
-    if len(parts) < 3:
-        return await message.answer("Использование: /sendpic <url_картинки> <текст>")
-    url = parts[1]
-    caption = parts[2]
-    try:
-        await message.answer_photo(photo=url, caption=caption)
-    except Exception as e:
-        await message.answer(f"⚠️ Ошибка при отправке картинки: {e}")
-
-# ===================== Проверка слова =====================
-@dp.message()
-async def check_word(message: types.Message):
-    word = message.text.strip().lower()
-    words = load_words()
-
-    if word in words:
-        kb = InlineKeyboardBuilder()
-        kb.button(text="🔗 Подписаться на канал", url=NEWS_CHANNEL_LINK)
-        kb.button(text="✅ Проверить подписку", callback_data="checksub")
-        kb.adjust(1)
-
-        await message.answer(
-            "✅ Код принят!\n"
-            "Перед тем, как перейти к урокам, подпишись на наш официальный канал BRELKOF.\n"
-            "Именно там будут все новости, розыгрыши, конкурсы и анонсы наборов!",
-            reply_markup=kb.as_markup()
-        )
-    else:
-        await message.answer("❌ Неверное слово. Попробуй ещё раз.")
-
-# ===================== Callback: проверка подписки =====================
-@dp.callback_query(F.data == "checksub")
-async def checksub_callback(callback: types.CallbackQuery):
-    try:
-        chat_for_check = int(NEWS_CHANNEL_ID) if NEWS_CHANNEL_ID.startswith("-100") else NEWS_CHANNEL_ID
-
-        member = await bot.get_chat_member(chat_id=chat_for_check, user_id=callback.from_user.id)
-        status = getattr(member, "status", None)
-        if status in ("member", "administrator", "creator"):
-            kb_bingo = InlineKeyboardBuilder()
-            kb_bingo.button(text="🎯 БИНГО", callback_data="bingo")
-            kb_bingo.adjust(1)
-
-            await callback.message.answer(
-                "Спасибо тебе!\n"
-                "А еще у нас есть БИНГО 🎉\n"
-                "Выполняя задания, ты получишь скидку на следующий заказ.",
-                reply_markup=kb_bingo.as_markup()
-            )
-            await callback.message.answer_photo(
-                photo="https://placekitten.com/500/300",
-                caption=(
-                    "Я очень рада, что ты с нами!\nЖелаю тебе приятно провести это время)\n\n"
-                    f"Вот твоя ссылка на инструкции: https://t.me/+EVFwvTKKwlJhOTNi"
-                )
-            )
-        else:
-            await callback.message.answer("❌ Ты еще не подписался на канал BRELKOF!")
-    except Exception as e:
-        await callback.message.answer(f"⚠️ Ошибка при проверке подписки: {e}")
-    finally:
-        try:
-            await callback.answer()
-        except Exception:
-            pass
-
-# Заглушка для бинго
-@dp.callback_query(F.data == "bingo")
-async def bingo_callback(callback: types.CallbackQuery):
-    await callback.message.answer("🎯 Раздел БИНГО пока в разработке 😉")
-    try:
-        await callback.answer()
-    except Exception:
-        pass
-
-# ===================== AIOHTTP сервер для Render =====================
+# ========= WEB KEEP-ALIVE =========
 async def handle(request):
-    return web.Response(text="Bot is running")
+    return web.Response(text="Bot is alive")
 
 async def start_web_app():
     app = web.Application()
@@ -175,7 +97,142 @@ async def start_web_app():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-# ===================== Запуск =====================
+# ========= COMMANDS =========
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    add_user(message.from_user.id)
+    text = (
+        "Привет!\\n"
+        "На связи Даша — основатель бренда BRELKOF.\\n"
+        "Спасибо, что ты с нами! 💛\\n\\n"
+        "Чтобы открыть доступ к инструкциям, введи кодовое слово с листовки через команду /slovo\\n\\n"
+        f"Если возникнут вопросы — пиши в поддержку: {SUPPORT_CONTACT}"
+    )
+    try:
+        await message.answer_photo(WELCOME_PIC, caption=text, reply_markup=reply_kb())
+    except:
+        await message.answer(text, reply_markup=reply_kb())
+
+@dp.message(Command("info"))
+async def cmd_info(message: types.Message):
+    text = (
+        "ℹ️ Команды бота:\\n"
+        "/start — приветствие\\n"
+        "/slovo — ввести кодовое слово\\n"
+        "/getid — ID чата\\n"
+        "/info — помощь\\n\\n"
+        "👑 Админы:\\n"
+        "- пересылай посты сюда для рассылки\\n"
+        "- отвечай на пересланные сообщения пользователей для обратной связи"
+    )
+    await message.answer(text, reply_markup=reply_kb())
+
+@dp.message(Command("getid"))
+async def cmd_getid(message: types.Message):
+    await message.answer(f"ID этого чата: {message.chat.id}")
+
+@dp.message(Command("slovo"))
+async def cmd_slovo(message: types.Message):
+    await message.answer("✏️ Введи кодовое слово:")
+
+# ========= BINGO =========
+@dp.message(F.text == "БИНГО")
+async def btn_bingo(message: types.Message):
+    try:
+        chat_for_check = int(NEWS_CHANNEL_ID) if str(NEWS_CHANNEL_ID).startswith("-100") else NEWS_CHANNEL_ID
+        member = await bot.get_chat_member(chat_for_check, message.from_user.id)
+        if member.status not in ("member", "administrator", "creator"):
+            return await message.answer("❌ Сначала подпишись на наш канал!", reply_markup=reply_kb())
+    except Exception as e:
+        return await message.answer(f"⚠️ Ошибка проверки подписки: {e}")
+
+    text = (
+        "А еще у нас есть БИНГО 😍\\n\\n"
+        "Выполни задания, зачеркни все на карточке и получи промокод 15% себе или другу\\n"
+        "🥰 промокод единоразовый\\n\\n"
+        "1. Подписаться на Телеграм и Инстаграм\\n"
+        "2. Оставить отзыв на Озоне или ВБ / если набор подарили — в посте\\n"
+        "3. Выложить зайца в свои соц.сети, отметив BRELKOF\\n"
+        "4. Дать обратную связь на набор по кнопке ниже. Нам очень ценна ваша конструктивная критика\\n\\n"
+        "🥰 После выполнения тыкай ГОТОВО"
+    )
+    try:
+        await message.answer_photo(BINGO_PIC, caption=text, reply_markup=bingo_kb())
+    except:
+        await message.answer(text, reply_markup=bingo_kb())
+
+@dp.callback_query(F.data == "bingo_done")
+async def bingo_done(callback: types.CallbackQuery):
+    uid = str(callback.from_user.id)
+    bingo_data = load_json(BINGO_FILE)
+    user_data = bingo_data.get(uid, {})
+    if not user_data.get("review") or not user_data.get("social"):
+        await callback.message.answer("❌ Ты не прислал все ссылки. Нужно отзыв и пост в соцсетях.")
+    else:
+        for admin in ADMINS:
+            try:
+                await bot.send_message(
+                    admin,
+                    f"📩 Заявка БИНГО от @{callback.from_user.username or callback.from_user.id}\\n"
+                    f"Отзыв: {user_data['review']}\\n"
+                    f"Соцсети: {user_data['social']}"
+                )
+            except:
+                pass
+        await callback.message.answer("✅ Спасибо! Мы проверим задания и вручную отправим промокод 🥰")
+    try:
+        await callback.answer()
+    except:
+        pass
+
+# ========= LINKS HANDLER =========
+@dp.message(F.text.regexp(r'^https?://'))
+async def handle_links(message: types.Message):
+    uid = str(message.from_user.id)
+    bingo_data = load_json(BINGO_FILE)
+    if uid not in bingo_data:
+        bingo_data[uid] = {"username": message.from_user.username}
+    # если ссылки ещё нет — сохраняем как отзыв, иначе как соцсети
+    if not bingo_data[uid].get("review"):
+        bingo_data[uid]["review"] = message.text.strip()
+        await message.answer("✅ Ссылка на отзыв сохранена! Пришли теперь ссылку на пост в соцсетях 🐰")
+    elif not bingo_data[uid].get("social"):
+        bingo_data[uid]["social"] = message.text.strip()
+        await message.answer("✅ Ссылка на соцсети сохранена! Теперь жми ГОТОВО 😍")
+    else:
+        await message.answer("⚠️ Ты уже прислал все ссылки. Жми ГОТОВО!")
+    save_json(BINGO_FILE, bingo_data)
+
+# ========= OTHER HANDLERS (support, broadcast) =========
+@dp.message()
+async def all_messages(message: types.Message):
+    add_user(message.from_user.id)
+    if message.from_user.id in ADMINS and message.forward_from_chat:
+        users = load_list(USERS_FILE)
+        sent = 0
+        for uid in users:
+            try:
+                await bot.copy_message(uid, message.chat.id, message.message_id)
+                sent += 1
+            except:
+                pass
+        await message.answer(f"✅ Рассылка отправлена {sent} пользователям.")
+        return
+    entry = {
+        "user_id": message.from_user.id,
+        "username": f"@{message.from_user.username}" if message.from_user.username else None,
+        "text": message.text or "[non-text]",
+        "date": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    log_message(entry)
+    for admin in ADMINS:
+        try:
+            sent_msg = await bot.copy_message(admin, message.chat.id, message.message_id)
+            REPLY_MAP[sent_msg.message_id] = message.from_user.id
+        except:
+            pass
+
+# ========= RUN =========
 async def main():
     asyncio.create_task(start_web_app())
     await dp.start_polling(bot)
