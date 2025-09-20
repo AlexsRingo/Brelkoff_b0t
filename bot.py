@@ -135,6 +135,21 @@ async def cmd_getid(message: types.Message):
 async def cmd_slovo(message: types.Message):
     await message.answer("✏️ Введи кодовое слово:")
 
+# ========= CODE WORDS =========
+async def deliver_access(message: types.Message, word: str):
+    data = WORDS_MAP.get(word.lower())
+    if not data:
+        await message.answer("❌ Неверное слово. Попробуй ещё раз.", reply_markup=reply_kb())
+        return
+    if data["type"] == "id":
+        try:
+            invite = await bot.create_chat_invite_link(chat_id=data["value"], member_limit=1)
+            await message.answer("🎉 Отлично! Держи доступ:\n" + invite.invite_link, reply_markup=reply_kb())
+        except Exception as e:
+            await message.answer(f"⚠️ Ошибка: {e}")
+    elif data["type"] == "link":
+        await message.answer("🎉 Отлично! Держи доступ:\n" + data["value"], reply_markup=reply_kb())
+
 # ========= BINGO =========
 @dp.message(F.text == "БИНГО")
 async def btn_bingo(message: types.Message):
@@ -152,8 +167,8 @@ async def btn_bingo(message: types.Message):
         "🥰 промокод единоразовый\\n\\n"
         "1. Подписаться на Телеграм и Инстаграм\\n"
         "2. Оставить отзыв на Озоне или ВБ / если набор подарили — в посте\\n"
-        "3. Выложить зайца в свои соц.сети, отметив BRELKOF\\n"
-        "4. Дать обратную связь на набор по кнопке ниже. Нам очень ценна ваша конструктивная критика\\n\\n"
+        "3. Выложить зайца в соц.сети, отметив BRELKOF\\n"
+        "4. Дать обратную связь на набор по кнопке ниже\\n\\n"
         "🥰 После выполнения тыкай ГОТОВО"
     )
     try:
@@ -174,8 +189,7 @@ async def bingo_done(callback: types.CallbackQuery):
                 await bot.send_message(
                     admin,
                     f"📩 Заявка БИНГО от @{callback.from_user.username or callback.from_user.id}\\n"
-                    f"Отзыв: {user_data['review']}\\n"
-                    f"Соцсети: {user_data['social']}"
+                    f"Отзыв: {user_data['review']}\\nСоцсети: {user_data['social']}"
                 )
             except:
                 pass
@@ -192,10 +206,9 @@ async def handle_links(message: types.Message):
     bingo_data = load_json(BINGO_FILE)
     if uid not in bingo_data:
         bingo_data[uid] = {"username": message.from_user.username}
-    # если ссылки ещё нет — сохраняем как отзыв, иначе как соцсети
     if not bingo_data[uid].get("review"):
         bingo_data[uid]["review"] = message.text.strip()
-        await message.answer("✅ Ссылка на отзыв сохранена! Пришли теперь ссылку на пост в соцсетях 🐰")
+        await message.answer("✅ Ссылка на отзыв сохранена! Пришли ссылку на пост в соцсетях 🐰")
     elif not bingo_data[uid].get("social"):
         bingo_data[uid]["social"] = message.text.strip()
         await message.answer("✅ Ссылка на соцсети сохранена! Теперь жми ГОТОВО 😍")
@@ -203,10 +216,15 @@ async def handle_links(message: types.Message):
         await message.answer("⚠️ Ты уже прислал все ссылки. Жми ГОТОВО!")
     save_json(BINGO_FILE, bingo_data)
 
-# ========= OTHER HANDLERS (support, broadcast) =========
+# ========= GENERAL MESSAGES =========
 @dp.message()
 async def all_messages(message: types.Message):
+    text = (message.text or "").strip().lower()
+    if text in WORDS_MAP:
+        return await deliver_access(message, text)
+
     add_user(message.from_user.id)
+
     if message.from_user.id in ADMINS and message.forward_from_chat:
         users = load_list(USERS_FILE)
         sent = 0
@@ -218,6 +236,7 @@ async def all_messages(message: types.Message):
                 pass
         await message.answer(f"✅ Рассылка отправлена {sent} пользователям.")
         return
+
     entry = {
         "user_id": message.from_user.id,
         "username": f"@{message.from_user.username}" if message.from_user.username else None,
