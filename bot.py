@@ -63,6 +63,14 @@ def add_user(user_id):
         users.append(user_id)
         save_list(USERS_FILE, users)
 
+def _normalize_chat_ref(v: str):
+    v = (v or "").strip()
+    if v.startswith("-100"):
+        return int(v)
+    if v.startswith("@"):
+        return v
+    return f"@{v}" if v else v
+
 # ========= KEYBOARDS =========
 def reply_kb():
     return ReplyKeyboardMarkup(
@@ -163,12 +171,16 @@ async def cmd_broadcast(message: types.Message):
 @dp.message(F.text == "БИНГО")
 async def btn_bingo(message: types.Message):
     try:
-        chat_for_check = int(NEWS_CHANNEL_ID) if str(NEWS_CHANNEL_ID).startswith("-100") else NEWS_CHANNEL_ID
+        chat_for_check = _normalize_chat_ref(NEWS_CHANNEL_ID)
         member = await bot.get_chat_member(chat_for_check, message.from_user.id)
-        if member.status not in ("member", "administrator", "creator"):
+        if getattr(member, "status", None) not in ("member", "administrator", "creator"):
             return await message.answer("❌ Сначала подпишись на наш канал!", reply_markup=reply_kb())
     except Exception as e:
-        return await message.answer(f"⚠️ Ошибка проверки подписки: {e}")
+        return await message.answer(
+            f"⚠️ Ошибка проверки подписки.\\n"
+            f"Проверял: {NEWS_CHANNEL_ID}\\n"
+            f"Детали: {e}"
+        )
 
     text = (
         "А еще у нас есть БИНГО 😍\\n\\n"
