@@ -16,7 +16,7 @@ def init_db():
 # Функция проверки подписки (у вас уже есть, оставляем)
 def check_subscription(user_id):
     try:
-        chat_member = bot.get_chat_member('@brelkof_news', user_id)
+        chat_member = bot.get_chat_member('@brelkof', user_id)
         return chat_member.status in ['member', 'administrator', 'creator']
     except:
         return False
