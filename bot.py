@@ -2,7 +2,7 @@
 import sqlite3
 from telebot import TeleBot, types
 
-bot = TeleBot('8421507526:AAHq5MYaNPOQVYHAYvWbAR9fQkl6ZZRpST8')
+bot = TeleBot('8421507526:AAFkNrBez1OP1wv-nimr4E3DIY15UNxDGHU')
 
 # Создаем базу данных для хранения кодовых слов и ссылок
 def init_db():
